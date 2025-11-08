@@ -1,37 +1,25 @@
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 import datetime
 from functools import wraps
-import numpy as np
-from sklearn.ensemble import RandomForestClassifier
-from transformers import pipeline
-import pandas as pd
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-import io
 import os
 
 app = Flask(__name__)
 CORS(app)
 
 # Configuration
-app.config['SECRET_KEY'] = 'your-secret-key-change-this-in-production'
+app.config['SECRET_KEY'] = 'your-secret-key-change-this'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///business_manager.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# Initialize AI Models (load once at startup)
-print("Loading AI models... This may take a moment...")
-try:
-    summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
-    print("✓ Summarization model loaded")
-except Exception as e:
-    print(f"Warning: Could not load summarizer - {e}")
-    summarizer = None
+print("="*60)
+print("🚀 AI BUSINESS MANAGER - Backend Server")
+print("="*60)
 
 # ============= DATABASE MODELS =============
 
@@ -57,14 +45,6 @@ class MeetingSummary(db.Model):
     summary = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
 
-class Anomaly(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    month = db.Column(db.String(20), nullable=False)
-    sales = db.Column(db.Float, nullable=False)
-    z_score = db.Column(db.Float, nullable=False)
-    is_anomaly = db.Column(db.Boolean, default=False)
-    detected_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
-
 # ============= JWT TOKEN DECORATOR =============
 
 def token_required(f):
@@ -80,7 +60,8 @@ def token_required(f):
                 token = token.split(' ')[1]
             data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
             current_user = User.query.get(data['user_id'])
-        except:
+        except Exception as e:
+            print(f"Token error: {e}")
             return jsonify({'message': 'Token is invalid'}), 401
         
         return f(current_user, *args, **kwargs)
@@ -89,144 +70,152 @@ def token_required(f):
 
 # ============= AUTHENTICATION ENDPOINTS =============
 
-@app.route("/register", methods=["POST"])
-def register():
-    data = request.get_json()
-    username = data.get("username")
-    email = data.get("email")
-    password = data.get("password")
-
-    if not username or not email or not password:
-        return jsonify({"status": "error", "message": "Missing required fields"}), 400
-
-    if User.query.filter_by(username=username).first():
-        return jsonify({"status": "error", "message": "Username already exists"}), 409
-
-    if User.query.filter_by(email=email).first():
-        return jsonify({"status": "error", "message": "Email already exists"}), 409
-
-    password_hash = generate_password_hash(password)
-    new_user = User(username=username, email=email, password_hash=password_hash)
-    
-    db.session.add(new_user)
-    db.session.commit()
-
-    return jsonify({"status": "success", "message": "User registered successfully"}), 201
-
-
 @app.route("/login", methods=["POST"])
 def login():
-    data = request.get_json()
-    username = data.get("username")
-    password = data.get("password")
+    try:
+        data = request.get_json()
+        username = data.get("username")
+        password = data.get("password")
 
-    user = User.query.filter_by(username=username).first()
+        print(f"🔐 Login attempt - Username: {username}")
 
-    if not user or not check_password_hash(user.password_hash, password):
-        return jsonify({"status": "error", "message": "Invalid credentials"}), 401
+        if not username or not password:
+            print("❌ Missing username or password")
+            return jsonify({"status": "error", "message": "Username and password required"}), 400
 
-    token = jwt.encode({
-        'user_id': user.id,
-        'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
-    }, app.config['SECRET_KEY'], algorithm="HS256")
+        user = User.query.filter_by(username=username).first()
 
-    return jsonify({
-        "status": "success",
-        "token": token,
-        "user": {
-            "id": user.id,
-            "username": user.username,
-            "email": user.email
-        }
-    })
+        if not user:
+            print(f"❌ User not found: {username}")
+            return jsonify({"status": "error", "message": "Invalid credentials"}), 401
 
-# ============= AI-POWERED SALES RECOMMENDATIONS =============
+        if not check_password_hash(user.password_hash, password):
+            print(f"❌ Wrong password for user: {username}")
+            return jsonify({"status": "error", "message": "Invalid credentials"}), 401
+
+        # Create token
+        token = jwt.encode({
+            'user_id': user.id,
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
+        }, app.config['SECRET_KEY'], algorithm="HS256")
+
+        print(f"✅ Login successful for: {username}")
+
+        return jsonify({
+            "status": "success",
+            "token": token,
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email
+            }
+        })
+
+    except Exception as e:
+        print(f"❌ Login error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/register", methods=["POST"])
+def register():
+    try:
+        data = request.get_json()
+        username = data.get("username")
+        email = data.get("email")
+        password = data.get("password")
+
+        if not username or not email or not password:
+            return jsonify({"status": "error", "message": "Missing required fields"}), 400
+
+        if User.query.filter_by(username=username).first():
+            return jsonify({"status": "error", "message": "Username already exists"}), 409
+
+        if User.query.filter_by(email=email).first():
+            return jsonify({"status": "error", "message": "Email already exists"}), 409
+
+        password_hash = generate_password_hash(password)
+        new_user = User(username=username, email=email, password_hash=password_hash)
+        
+        db.session.add(new_user)
+        db.session.commit()
+
+        print(f"✅ New user registered: {username}")
+
+        return jsonify({"status": "success", "message": "User registered successfully"}), 201
+
+    except Exception as e:
+        print(f"❌ Registration error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ============= SALES RECOMMENDATIONS =============
 
 @app.route("/recommendation", methods=["GET"])
 def recommendation():
-    """
-    Real ML-based product recommendations using Random Forest
-    """
-    # Get historical sales data
-    sales_data = SalesData.query.all()
-    
-    if len(sales_data) < 10:
-        # Initialize with sample data if database is empty
-        sample_products = [
-            ("Laptop", 120, "Jan", "Electronics"),
-            ("Mouse", 80, "Jan", "Accessories"),
-            ("Keyboard", 60, "Jan", "Accessories"),
-            ("Monitor", 90, "Feb", "Electronics"),
-            ("Laptop", 150, "Feb", "Electronics"),
-            ("Mouse", 85, "Feb", "Accessories"),
-            ("Headphones", 70, "Mar", "Accessories"),
-            ("Laptop", 180, "Mar", "Electronics"),
-            ("Keyboard", 65, "Mar", "Accessories"),
-            ("Monitor", 95, "Mar", "Electronics"),
-        ]
-        
-        for product, sales, month, category in sample_products:
-            new_data = SalesData(product=product, sales=sales, month=month, category=category)
-            db.session.add(new_data)
-        db.session.commit()
-        
+    try:
         sales_data = SalesData.query.all()
+        
+        # Group by product and calculate stats
+        product_stats = {}
+        for sale in sales_data:
+            if sale.product not in product_stats:
+                product_stats[sale.product] = {'sales': [], 'count': 0}
+            product_stats[sale.product]['sales'].append(sale.sales)
+            product_stats[sale.product]['count'] += 1
+        
+        recommendations = []
+        for product, stats in product_stats.items():
+            avg_sales = sum(stats['sales']) / len(stats['sales'])
+            total_sales = sum(stats['sales'])
+            
+            # Simple scoring: higher avg and more data points = higher probability
+            score = (avg_sales * stats['count']) / 1000  # Normalize
+            probability = min(score / 10, 0.99)  # Cap at 0.99
+            
+            recommendations.append({
+                "product": product,
+                "probability": round(probability, 2),
+                "avg_sales": round(avg_sales, 2),
+                "total_sales": int(stats['count'])
+            })
+        
+        # Sort by probability
+        recommendations.sort(key=lambda x: x['probability'], reverse=True)
+        
+        return jsonify({"recommendations": recommendations})
     
-    # Prepare data for ML model
-    df = pd.DataFrame([{
-        'product': s.product,
-        'sales': s.sales,
-        'month': s.month,
-        'category': s.category
-    } for s in sales_data])
-    
-    # Calculate product scores based on sales trends
-    product_scores = df.groupby('product')['sales'].agg(['mean', 'std', 'count']).reset_index()
-    product_scores['score'] = (product_scores['mean'] * product_scores['count']) / (product_scores['std'] + 1)
-    product_scores = product_scores.sort_values('score', ascending=False)
-    
-    # Calculate probability (normalize scores to 0-1)
-    max_score = product_scores['score'].max()
-    product_scores['probability'] = product_scores['score'] / max_score
-    
-    recommendations = []
-    for _, row in product_scores.head(5).iterrows():
-        recommendations.append({
-            "product": row['product'],
-            "probability": round(float(row['probability']), 2),
-            "avg_sales": round(float(row['mean']), 2),
-            "total_sales": int(row['count'])
-        })
-    
-    return jsonify({"recommendations": recommendations})
+    except Exception as e:
+        print(f"❌ Recommendation error: {e}")
+        return jsonify({"recommendations": []})
 
 
-# ============= AI TEXT SUMMARIZATION =============
+# ============= TEXT SUMMARIZATION =============
 
 @app.route("/summarize", methods=["POST"])
 @token_required
 def summarize(current_user):
-    """
-    Real AI summarization using Hugging Face transformers
-    """
-    data = request.get_json()
-    text = data.get("text", "")
-    
-    if len(text) < 50:
-        return jsonify({"error": "Text too short to summarize"}), 400
-    
     try:
-        if summarizer and len(text) > 100:
-            # Use AI model for longer texts
-            max_length = min(150, len(text.split()) // 2)
-            min_length = min(50, max_length // 2)
-            
-            summary_result = summarizer(text, max_length=max_length, min_length=min_length, do_sample=False)
-            summary = summary_result[0]['summary_text']
-        else:
-            # Fallback to simple summarization
-            sentences = text.split('.')
-            summary = '. '.join(sentences[:3]) + '.'
+        data = request.get_json()
+        text = data.get("text", "")
+        
+        if len(text) < 50:
+            return jsonify({"error": "Text too short to summarize"}), 400
+        
+        # Simple summarization: take first 3 sentences
+        sentences = text.replace('!', '.').replace('?', '.').split('.')
+        sentences = [s.strip() for s in sentences if s.strip()]
+        
+        # Take first 3 sentences or up to 150 characters
+        summary_sentences = []
+        summary_length = 0
+        for sentence in sentences[:5]:
+            if summary_length + len(sentence) < 150:
+                summary_sentences.append(sentence)
+                summary_length += len(sentence)
+            else:
+                break
+        
+        summary = '. '.join(summary_sentences) + '.'
         
         # Save to database
         meeting = MeetingSummary(
@@ -237,6 +226,8 @@ def summarize(current_user):
         db.session.add(meeting)
         db.session.commit()
         
+        print(f"✅ Summary created for user: {current_user.username}")
+        
         return jsonify({
             "summary": summary,
             "original_length": len(text),
@@ -245,201 +236,75 @@ def summarize(current_user):
         })
         
     except Exception as e:
-        print(f"Summarization error: {e}")
-        return jsonify({"error": "Summarization failed", "details": str(e)}), 500
+        print(f"❌ Summarization error: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 # ============= ANOMALY DETECTION =============
 
 @app.route("/anomalies", methods=["GET"])
 def anomalies():
-    """
-    Statistical anomaly detection using Z-score
-    """
-    # Get sales data
-    sales_data = SalesData.query.all()
-    
-    if not sales_data:
-        # Sample data for demo
-        months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        sales_values = [100, 120, 115, 300, 110, 105, 125, 130, 115, 120, 110, 125]  # Apr is anomaly
-        
-        for month, sales in zip(months, sales_values):
-            new_data = SalesData(product="Total", sales=sales, month=month, category="All")
-            db.session.add(new_data)
-        db.session.commit()
+    try:
+        # Get sales data grouped by month
         sales_data = SalesData.query.all()
-    
-    # Group by month and sum sales
-    df = pd.DataFrame([{'month': s.month, 'sales': s.sales} for s in sales_data])
-    monthly_sales = df.groupby('month')['sales'].sum().reset_index()
-    
-    # Calculate Z-scores
-    mean_sales = monthly_sales['sales'].mean()
-    std_sales = monthly_sales['sales'].std()
-    
-    results = []
-    for _, row in monthly_sales.iterrows():
-        z_score = (row['sales'] - mean_sales) / std_sales if std_sales > 0 else 0
-        is_anomaly = abs(z_score) >= 2
         
-        # Save anomaly to database
-        anomaly = Anomaly(
-            month=row['month'],
-            sales=row['sales'],
-            z_score=z_score,
-            is_anomaly=is_anomaly
-        )
+        if not sales_data:
+            print("⚠️ No sales data found")
+            return jsonify({"data": []})
         
-        results.append({
-            "month": row['month'],
-            "sales": float(row['sales']),
-            "z_score": round(float(z_score), 2),
-            "anomaly": bool(is_anomaly)
-        })
-    
-    return jsonify({"data": results})
-
-
-# ============= EXPORT TO PDF =============
-
-@app.route("/export/pdf", methods=["POST"])
-@token_required
-def export_pdf(current_user):
-    """
-    Export dashboard data to PDF report
-    """
-    data = request.get_json()
-    report_type = data.get("type", "summary")
-    
-    # Create PDF in memory
-    buffer = io.BytesIO()
-    c = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
-    
-    # Title
-    c.setFont("Helvetica-Bold", 24)
-    c.drawString(100, height - 100, "AI Business Manager Report")
-    
-    c.setFont("Helvetica", 12)
-    c.drawString(100, height - 130, f"Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    c.drawString(100, height - 150, f"User: {current_user.username}")
-    
-    y_position = height - 200
-    
-    if report_type == "sales":
-        c.setFont("Helvetica-Bold", 16)
-        c.drawString(100, y_position, "Sales Recommendations")
-        y_position -= 30
+        # Group by month
+        monthly_sales = {}
+        for sale in sales_data:
+            if sale.month not in monthly_sales:
+                monthly_sales[sale.month] = 0
+            monthly_sales[sale.month] += sale.sales
         
-        # Get recommendations
-        sales_data = SalesData.query.all()
-        c.setFont("Helvetica", 12)
+        # Calculate mean and std
+        values = list(monthly_sales.values())
+        mean_val = sum(values) / len(values)
         
-        for i, sale in enumerate(sales_data[:10]):
-            c.drawString(120, y_position, f"{i+1}. {sale.product} - ${sale.sales}")
-            y_position -= 20
-    
-    elif report_type == "summaries":
-        c.setFont("Helvetica-Bold", 16)
-        c.drawString(100, y_position, "Meeting Summaries")
-        y_position -= 30
+        # Calculate standard deviation
+        variance = sum((x - mean_val) ** 2 for x in values) / len(values)
+        std_val = variance ** 0.5
         
-        summaries = MeetingSummary.query.filter_by(user_id=current_user.id).order_by(MeetingSummary.created_at.desc()).limit(5).all()
-        c.setFont("Helvetica", 10)
-        
-        for summary in summaries:
-            c.drawString(120, y_position, f"Date: {summary.created_at.strftime('%Y-%m-%d')}")
-            y_position -= 15
+        # Calculate z-scores
+        results = []
+        for month, sales in monthly_sales.items():
+            z_score = (sales - mean_val) / std_val if std_val > 0 else 0
+            is_anomaly = abs(z_score) >= 2
             
-            # Wrap text
-            words = summary.summary.split()
-            line = ""
-            for word in words:
-                if len(line + word) < 70:
-                    line += word + " "
-                else:
-                    c.drawString(120, y_position, line)
-                    y_position -= 15
-                    line = word + " "
-            if line:
-                c.drawString(120, y_position, line)
-            y_position -= 25
+            results.append({
+                "month": month,
+                "sales": float(sales),
+                "z_score": round(float(z_score), 2),
+                "anomaly": bool(is_anomaly)
+            })
+        
+        # Sort by month order
+        month_order = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        results.sort(key=lambda x: month_order.index(x["month"]) if x["month"] in month_order else 999)
+        
+        print(f"✅ Anomalies calculated: {len([r for r in results if r['anomaly']])} found")
+        
+        return jsonify({"data": results})
     
-    c.save()
-    buffer.seek(0)
-    
-    return send_file(
-        buffer,
-        as_attachment=True,
-        download_name=f'report_{report_type}_{datetime.datetime.now().strftime("%Y%m%d")}.pdf',
-        mimetype='application/pdf'
-    )
-
-
-# ============= ANALYTICS ENDPOINTS =============
-
-@app.route("/analytics/dashboard", methods=["GET"])
-@token_required
-def dashboard_analytics(current_user):
-    """
-    Get comprehensive dashboard analytics
-    """
-    total_sales = db.session.query(db.func.sum(SalesData.sales)).scalar() or 0
-    total_products = db.session.query(db.func.count(db.func.distinct(SalesData.product))).scalar() or 0
-    total_summaries = MeetingSummary.query.filter_by(user_id=current_user.id).count()
-    total_anomalies = Anomaly.query.filter_by(is_anomaly=True).count()
-    
-    # Sales trend
-    sales_by_month = db.session.query(
-        SalesData.month,
-        db.func.sum(SalesData.sales).label('total')
-    ).group_by(SalesData.month).all()
-    
-    return jsonify({
-        "total_sales": float(total_sales),
-        "total_products": total_products,
-        "total_summaries": total_summaries,
-        "total_anomalies": total_anomalies,
-        "sales_trend": [{"month": m, "total": float(t)} for m, t in sales_by_month]
-    })
-
-
-# ============= ADD SAMPLE DATA ENDPOINT =============
-
-@app.route("/seed-data", methods=["POST"])
-def seed_data():
-    """
-    Add sample data for testing
-    """
-    # Add sample sales data
-    products = ["Laptop", "Mouse", "Keyboard", "Monitor", "Headphones"]
-    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"]
-    
-    for month in months:
-        for product in products:
-            sales = np.random.randint(50, 200)
-            new_sale = SalesData(
-                product=product,
-                sales=sales,
-                month=month,
-                category="Electronics" if product in ["Laptop", "Monitor"] else "Accessories"
-            )
-            db.session.add(new_sale)
-    
-    db.session.commit()
-    return jsonify({"message": "Sample data added successfully"})
+    except Exception as e:
+        print(f"❌ Anomalies error: {e}")
+        return jsonify({"data": []})
 
 
 # ============= INITIALIZE DATABASE =============
 
-@app.before_request
-def create_tables():
-    if not hasattr(app, 'tables_created'):
+def init_database():
+    """Initialize database with sample data"""
+    with app.app_context():
+        # Create tables
         db.create_all()
+        print("✅ Database tables created")
         
-        # Create default admin user if doesn't exist
-        if not User.query.filter_by(username='admin').first():
+        # Check if admin exists
+        admin = User.query.filter_by(username='admin').first()
+        if not admin:
             admin = User(
                 username='admin',
                 email='admin@example.com',
@@ -447,9 +312,11 @@ def create_tables():
             )
             db.session.add(admin)
             db.session.commit()
-            print("✓ Default admin user created")
+            print("✅ Admin user created (username: admin, password: 123)")
+        else:
+            print("✅ Admin user already exists")
         
-        # Add sample data if database is empty
+        # Check if sample data exists
         if SalesData.query.count() == 0:
             print("📊 Adding sample sales data...")
             sample_data = [
@@ -463,9 +330,10 @@ def create_tables():
                 ("Laptop", 180, "Mar", "Electronics"),
                 ("Keyboard", 65, "Mar", "Accessories"),
                 ("Monitor", 95, "Apr", "Electronics"),
-                ("Laptop", 420, "Apr", "Electronics"),  # Anomaly
+                ("Laptop", 420, "Apr", "Electronics"),  # Anomaly!
                 ("Mouse", 75, "May", "Accessories"),
                 ("Keyboard", 70, "Jun", "Accessories"),
+                ("Monitor", 100, "Jul", "Electronics"),
             ]
             
             for product, sales, month, category in sample_data:
@@ -473,16 +341,221 @@ def create_tables():
                 db.session.add(new_data)
             
             db.session.commit()
-            print("✓ Sample data added")
-        
-        app.tables_created = True
+            print("✅ Sample data added successfully")
+        else:
+            print("✅ Sample data already exists")
 
+
+# ============= DATA MANAGEMENT ENDPOINTS =============
+
+@app.route("/add-sales", methods=["POST"])
+@token_required
+def add_sales(current_user):
+    """
+    Add new sales data
+    Body: {
+        "product": "Laptop",
+        "sales": 150.50,
+        "month": "Jan",
+        "category": "Electronics"
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        required_fields = ["product", "sales", "month"]
+        for field in required_fields:
+            if field not in data:
+                return jsonify({"status": "error", "message": f"Missing field: {field}"}), 400
+        
+        new_sale = SalesData(
+            product=data["product"],
+            sales=float(data["sales"]),
+            month=data["month"],
+            category=data.get("category", "Uncategorized")
+        )
+        
+        db.session.add(new_sale)
+        db.session.commit()
+        
+        print(f"✅ New sales entry added: {data['product']} - ${data['sales']}")
+        
+        return jsonify({
+            "status": "success",
+            "message": "Sales data added successfully",
+            "data": {
+                "id": new_sale.id,
+                "product": new_sale.product,
+                "sales": new_sale.sales,
+                "month": new_sale.month,
+                "category": new_sale.category
+            }
+        }), 201
+        
+    except Exception as e:
+        print(f"❌ Add sales error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/bulk-add-sales", methods=["POST"])
+@token_required
+def bulk_add_sales(current_user):
+    """
+    Add multiple sales entries at once
+    Body: {
+        "sales": [
+            {"product": "Laptop", "sales": 150, "month": "Jan", "category": "Electronics"},
+            {"product": "Mouse", "sales": 25, "month": "Jan", "category": "Accessories"}
+        ]
+    }
+    """
+    try:
+        data = request.get_json()
+        sales_list = data.get("sales", [])
+        
+        if not sales_list:
+            return jsonify({"status": "error", "message": "No sales data provided"}), 400
+        
+        added_count = 0
+        for sale_data in sales_list:
+            new_sale = SalesData(
+                product=sale_data["product"],
+                sales=float(sale_data["sales"]),
+                month=sale_data["month"],
+                category=sale_data.get("category", "Uncategorized")
+            )
+            db.session.add(new_sale)
+            added_count += 1
+        
+        db.session.commit()
+        print(f"✅ Bulk sales added: {added_count} entries")
+        
+        return jsonify({
+            "status": "success",
+            "message": f"{added_count} sales entries added successfully"
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ Bulk add error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/get-all-sales", methods=["GET"])
+@token_required
+def get_all_sales(current_user):
+    """Get all sales data"""
+    try:
+        sales = SalesData.query.order_by(SalesData.timestamp.desc()).all()
+        
+        results = []
+        for sale in sales:
+            results.append({
+                "id": sale.id,
+                "product": sale.product,
+                "sales": sale.sales,
+                "month": sale.month,
+                "category": sale.category,
+                "timestamp": sale.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            })
+        
+        return jsonify({"status": "success", "data": results})
+        
+    except Exception as e:
+        print(f"❌ Get sales error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/delete-sales/<int:sale_id>", methods=["DELETE"])
+@token_required
+def delete_sales(current_user, sale_id):
+    """Delete a sales entry"""
+    try:
+        sale = SalesData.query.get(sale_id)
+        
+        if not sale:
+            return jsonify({"status": "error", "message": "Sales entry not found"}), 404
+        
+        db.session.delete(sale)
+        db.session.commit()
+        
+        print(f"✅ Sales entry deleted: ID {sale_id}")
+        
+        return jsonify({"status": "success", "message": "Sales entry deleted"})
+        
+    except Exception as e:
+        print(f"❌ Delete error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/update-sales/<int:sale_id>", methods=["PUT"])
+@token_required
+def update_sales(current_user, sale_id):
+    """Update a sales entry"""
+    try:
+        sale = SalesData.query.get(sale_id)
+        
+        if not sale:
+            return jsonify({"status": "error", "message": "Sales entry not found"}), 404
+        
+        data = request.get_json()
+        
+        if "product" in data:
+            sale.product = data["product"]
+        if "sales" in data:
+            sale.sales = float(data["sales"])
+        if "month" in data:
+            sale.month = data["month"]
+        if "category" in data:
+            sale.category = data["category"]
+        
+        db.session.commit()
+        
+        print(f"✅ Sales entry updated: ID {sale_id}")
+        
+        return jsonify({
+            "status": "success",
+            "message": "Sales entry updated",
+            "data": {
+                "id": sale.id,
+                "product": sale.product,
+                "sales": sale.sales,
+                "month": sale.month,
+                "category": sale.category
+            }
+        })
+        
+    except Exception as e:
+        print(f"❌ Update error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ============= HEALTH CHECK =============
+
+@app.route("/", methods=["GET"])
+def health_check():
+    return jsonify({
+        "status": "running",
+        "message": "AI Business Manager Backend",
+        "endpoints": ["/login", "/register", "/recommendation", "/summarize", "/anomalies"]
+    })
+
+
+# ============= RUN SERVER =============
 
 if __name__ == "__main__":
-    print("=" * 50)
-    print("AI Business Manager - Backend Server")
-    print("=" * 50)
-    print("Starting Flask server on http://127.0.0.1:5000")
-    print("Press CTRL+C to quit")
-    print("=" * 50)
+    print("="*60)
+    print("Initializing database...")
+    print("="*60)
+    
+    init_database()
+    
+    print("="*60)
+    print("🚀 Server starting on http://127.0.0.1:5000")
+    print("="*60)
+    print("\n📝 Test login with:")
+    print("   Username: admin")
+    print("   Password: 123")
+    print("\n⌨️  Press CTRL+C to quit\n")
+    
     app.run(debug=True, port=5000)

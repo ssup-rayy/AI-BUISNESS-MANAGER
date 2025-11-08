@@ -15,8 +15,7 @@ export default function Layout({ children, user, onLogout }) {
     { path: "/sales", label: "Sales", icon: "💼" },
     { path: "/summary", label: "Summary", icon: "📝" },
     { path: "/anomalies", label: "Anomalies", icon: "🔍" },
-    { path: "/analytics", label: "Analytics", icon: "📈" },
-    { path: "/export", label: "Export", icon: "📥" }
+    { path: "/data", label: "Manage Data", icon: "💾" }
   ];
 
   return (

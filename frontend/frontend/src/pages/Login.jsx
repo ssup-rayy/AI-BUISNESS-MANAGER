@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import axios from "axios";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 export default function Login({ onLogin }) {
   const navigate = useNavigate();
@@ -165,24 +165,15 @@ export default function Login({ onLogin }) {
             <div className="w-full border-t border-gray-300"></div>
           </div>
           <div className="relative flex justify-center text-sm">
-            <span className="px-4 bg-white text-gray-500">OR</span>
+            <span className="px-4 bg-white text-gray-500">Demo Credentials</span>
           </div>
         </div>
 
-        {/* Register Link */}
-        <div className="text-center">
-          <p className="text-gray-600">
-            Don't have an account?{" "}
-            <Link to="/register" className="text-purple-600 hover:text-purple-700 font-bold">
-              Create Account
-            </Link>
-          </p>
-        </div>
-
         {/* Demo Credentials */}
-        <div className="mt-6 p-4 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl">
-          <p className="text-xs text-gray-600 text-center font-medium">
-            <span className="font-bold text-indigo-600">Demo:</span> admin / 123
+        <div className="p-4 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl">
+          <p className="text-sm text-gray-600 text-center font-medium">
+            <span className="font-bold text-indigo-600">Username:</span> admin <br />
+            <span className="font-bold text-indigo-600">Password:</span> 123
           </p>
         </div>
       </div>

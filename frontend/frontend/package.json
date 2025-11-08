@@ -1,6 +1,7 @@
 {
-  "name": "frontend",
-  "version": "0.1.0",
+  "name": "ai-business-manager-frontend",
+  "version": "2.0.0",
+  "description": "AI-powered business analytics dashboard",
   "private": true,
   "dependencies": {
     "@testing-library/dom": "^10.4.1",
@@ -19,7 +20,8 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "deploy": "npm run build && echo 'Build complete, ready to deploy'"
   },
   "eslintConfig": {
     "extends": [
@@ -43,5 +45,6 @@
     "autoprefixer": "^10.4.21",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.18"
-  }
+  },
+  "proxy": "http://127.0.0.1:5000"
 }
